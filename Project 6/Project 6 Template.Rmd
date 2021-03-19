@@ -44,12 +44,86 @@ Matching is usually used in observational studies to to approximate random assig
 
 ```{r}
 # Generate a vector that randomly assigns each unit to treatment/control
+set.seed(13)
+m = nrow(ypsps) #number of rows in dataframe = 1254
 
-# Choose a baseline covariate (use dplyr for this)
+ypsps_df <- ypsps %>% 
+    mutate(A = sample(rep(c(0,1), each = m/2)))
+```
 
-# Visualize the distribution by treatment/control (ggplot)
+```{r}
+# Choose a baseline covariate (use dplyr for this) 
+df_1 = filter(ypsps_df, A==1)   #filtering dataframe by A
+df_0 = filter(ypsps_df, A==0)
 
+mean(df_1$parent_Magazine)  
+mean(df_0$parent_Magazine)  
+
+#We chose "parent_Magazine," which is a binary variable indicating whether parents read about public affairs and politics in any magazine.
+
+```
+
+```{r}
+# Visualize the distribution by treatment/control (ggplot). Are treatment and control balanced on this covariate?
+
+ggplot(ypsps_df, aes(x = parent_Magazine, fill = factor(A))) + 
+  geom_bar() +
+  facet_grid(A~.) + 
+  labs(title = "Distribution of Parents Reading Magazines about Politics at Baseline", fill = "A\n")
+
+#2x2 table of T vs C and whether parents read vs. not read political magazines.
+table(ypsps_df$A, ypsps_df$parent_Magazine) 
+
+#testing whether parents in treatment and control groups are significant different in whether or not they reading political magazines
+chisq.test(table(ypsps_df$A, ypsps_df$parent_Magazine))  
+
+#A: The treatment and control groups are not significantly different in parents' reading political magazines at baseline, since the p-value is greater than .05. Treatment and control are balanced on this covariate.
+
+```
+
+```{r}
 # Simulate this 10,000 times (monte carlo simulation - see R Refresher for a hint)
+
+# Number of simulations
+simnum <- 10000
+
+#creating empty lists 
+meanlist1 <- list() #store the proportion of 1s for Treatment(1) 
+meanlist0 <- list() #store the proportion of 1s for Control(0) group
+pvallist <- list() #store the p-values from Chi-squared tests each iteration
+
+#Finding the proportion of 1s (parents' reading political magazines) in T and C groups, 
+#iterating through 10000 simulations
+
+for(i in 1:simnum){
+    ypsps_mc <- ypsps %>% 
+      mutate(A = sample(rep(c(0,1), each = m/2)))
+    eachmean1 <- mean(ypsps_mc$parent_Magazine[ypsps_mc$A==1])  #finding proportion(mean)
+    eachmean0 <- mean(ypsps_mc$parent_Magazine[ypsps_mc$A==0])
+    meanlist1 <- c(meanlist1, eachmean1)   #storing means
+    meanlist0 <- c(meanlist0, eachmean0)
+    chitest = chisq.test(table(ypsps_mc$A, ypsps_mc$parent_Magazine))  #testing difference
+    pval = chitest$p.value
+    pvallist <- c(pvallist, pval)    #storing p-values
+    ypsps_mc <- select(ypsps_mc, -A)    #deleting A column to reset the dataframe
+}
+
+#taking a look at the chi-squared test p-values from each iteration
+sort(unlist(pvallist)) 
+hist(unlist(pvallist))
+
+#Density plots of the proportion of parents that read political magazines in Treatment vs. Control groups
+treatmean <- data.frame(values = matrix(unlist(meanlist1), byrow=TRUE), stringsAsFactors=FALSE)
+controlmean <- data.frame(values = matrix(unlist(meanlist0), byrow=TRUE), stringsAsFactors=FALSE)
+
+treatmean$mean <- 'Treat'
+controlmean$mean <- 'Control'
+
+meandata <- rbind(treatmean, controlmean)
+meandata
+ggplot(meandata, aes(values, fill = mean)) + geom_density(alpha = 0.2)
+
+
 ```
 
 ## Questions
@@ -57,7 +131,12 @@ Matching is usually used in observational studies to to approximate random assig
     \item \textbf{What do you see across your simulations? Why does independence of treatment assignment and baseline covariates not guarantee balance of treatment assignment and baseline covariates?}
 \end{enumerate}
 
-\textbf{Your Answer}: 
+\textbf{Your Answer}: Simulating the randomization and examination of baseline covariates 10000 times produces an approximately normal, and similar density plots for both treatment and control groups. In other words, we randomly assigned treatment (through vector A) and saw whether the proportion of parents that read political magazines is significantly different at baseline between treated and control groups, and found that on average across simulations they are not different at a statistically significant level. 
+
+However, as the normally distributed graphs show, the left and right tails of the graph suggest that the proportions may be very different for the outliers. At the extremes, it may mean that the treated group had a huge majority of parents read political magazines (to the point of parent_Magazine==1), and vice versa. 
+
+Taking a look at the p-values from running the chi-squared test comparing the treatment and control groups (regarding whether parents read political magazines) each iteration further confirms this idea. A p-value of less than .05 suggests that the treatment and control groups are statistically different and hence the covariate is unbalanced at baseline. The list of p-values ('pvallist') shows almost 400 iterations producing p-values less than .05. This further confirms the idea that the independence of treatment assignment and baseline covariates does not guarantee balance of treatment assignment and baseline covariates. 
+
 
 # Propensity Score Matching
 
