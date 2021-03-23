@@ -196,19 +196,72 @@ Henderson/Chatfield argue that an improperly specified propensity score model ca
 
 Henderson/Chatfield propose using genetic matching to learn the best weights for Mahalanobis distance matching. Choose a matching algorithm other than the propensity score (you may use genetic matching if you wish, but it is also fine to use the greedy or optimal algorithms we covered in lab instead). Repeat the same steps as specified in Section 4.2 and answer the following questions:
 
+
 ```{r}
+set.seed(10)
+
 # Remove post-treatment covariates
+ypsps_precovs <- ypsps_df %>% 
+  select(!(contains('1973')|contains('1982')))
 
-# Randomly select features
+sims_n <- 10 # set the number of simulations
 
-# Simulate random selection of features 10k+ times
+# create an empty list for storing the models
+models_list <- list()
 
-# Fit  models and save ATTs, proportion of balanced covariates, and mean percent balance improvement
+# create empty vectors for storage
+ATT_full <- c()
+smd_prop <- c()
+smd_mean <- c()
+
+# loop through random numbers of random covariates and create matchit model objects
+
+for(i in 1:sims_n){
+  samp_df <- ypsps_precovs %>% select(-c(college,student_ppnscal)) # drop treatment and outcome for the covariate sampling
+  # grab a random number of random column indices
+  covs <- sample(1:ncol(samp_df),sample(1:ncol(samp_df),1))
+  # subset the dataframe using the vector of column indices
+  m_df <- ypsps_precovs %>% select(c(covs,"college","student_ppnscal")) # always keep the treatment indicator and the outcome
+  mdf_nomiss <- m_df %>% drop_na() # MatchIt does not allow missing values
+  # construct character string for formula, subtracting treatment and outcome
+  cov_names <- names(select(mdf_nomiss,-c(college,student_ppnscal)))
+  form_char <- paste0("college ~ ",paste0(cov_names,collapse=' + '), sep = " ")
+  # run the matching algothrim on all the variables in the df
+  result <- matchit(formula = as.formula(form_char), data = mdf_nomiss, method = "full", distance = "mahalanobis") # store it
+  models_list[[i]] <- result
+  match_full_att_summ <- summary(result) # get summary object
+  # store prop std mean diff meeting the >= .1 threshold
+  smd_prop[i] <- sum(match_full_att_summ$sum.all[,3] <= .1)/length(match_full_att_summ$sum.all[,3])
+  # store mean pct improvement in std mean diff
+  smd_mean[i] <- mean(match_full_att_summ$reduction[,1])
+  match_full_att_data <- match.data(result) # recover matched dataset
+  form_char2 <- paste0("student_ppnscal ~ ",paste0(cov_names,collapse=' + '), sep = " + college") # construct character string for second formula
+  # estimate the ATT
+  lm_full_att <- lm(as.formula(form_char2), data = match_full_att_data, weights = weights)
+  ATT_full[i] <- lm_full_att$coefficients["college"] # store estimate for college
+}
+
+# create df of stored values
+
+plots_df <- data.frame(ATT_full,smd_mean,smd_prop)
 
 # Plot ATT v. proportion
 
+p <- ggplot(plots_df, aes(x = smd_prop, y = ATT_full)) +
+  geom_point() +
+  xlab('% covariates meeting .1 threshold') +
+  ylab('ATT') +
+  ggtitle('ATT versus proportion')
+p
+
 # 10 random covariate balance plots (hint try gridExtra)
-# Note: ggplot objects are finnicky so ask for help if you're struggling to automatically create them; consider using functions!
+library(cobalt)
+library(gridExtra)
+
+model_inds <- sample(length(models_list),10) # sample 10 models and get their indices
+
+p <- lapply(model_inds, function(i) love.plot(models_list[[i]], binary = "std"))
+do.call("grid.arrange", p)
 ```
 
 ```{r}
