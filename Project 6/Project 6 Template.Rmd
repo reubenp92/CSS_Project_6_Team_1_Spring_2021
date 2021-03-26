@@ -145,10 +145,55 @@ Select covariates that you think best represent the "true" model predicting whet
 
 ```{r}
 # Select covariates that represent the "true" model for selection, fit model
+match_full_ate <- matchit(formula = college ~ parent_Money + parent_EducHH + parent_Race + student_GPA + student_community + student_FamTalk, method = 'full', data = ypsps, estimand = 'ATE')
+                         
+summary(ate.sum)
+```
 
+```{r}
 # Plot the balance for the top 10 covariates
+plot(match_full_ate, type = "qq", interactive = FALSE,
+     which.xs = c("parent_Money", "parent_EducHH", "parent_Race", "student_GPA", "student_community", "student_FamTalk"))
 
+ate.sum <- summary(match_full_ate)
+plot(ate.sum, var.order="unmatched", threshold = c(.1,.05))
+```
+
+
+```{r}
 # Report the overall balance and the proportion of covariates that meet the balance threshold
+sum_matched<-ate.sum$sum.matched
+sum_matched<-as.data.frame(sum_matched)
+
+Treat_score <-sum_matched[1] #means treated
+Control_score <-sum_matched[2] #means control
+smd_balance <- sum_matched %>%
+               filter_at(vars(3), any_vars(. <=.1))smd
+
+# <-sum_matched[apply(sum_matched[3], 1, function(x) any(x <= .1 )), ]
+
+# ATE Estimate is the coefficient estimate on the treatment variable "college"
+ATE_full <- lm_exact_ate_summ$coefficients["college", "Estimate"]
+ATE_full
+
+```
+
+
+
+```{r}
+colnames(ypsps)
+```
+
+```{r}
+# Report the overall balance and the proportion of covariates that meet the balance threshold
+match_full_ate_data <- match.data(match_full_ate)
+lm_full_ate <- lm(student_ppnscal ~ college + parent_Money + parent_EducHH + parent_Race + student_GPA + student_community + student_FamTalk , data = match_full_ate_data, weights = weights)
+lm_full_ate_summ <- summary(lm_full_ate)
+lm_full_ate_summ
+
+# ATE Estimate is the coefficient estimate on the treatment variable "college"
+ATE_full <- lm_exact_ate_summ$coefficients["college", "Estimate"]
+ATE_full
 ```
 
 ## Simulations
@@ -166,17 +211,86 @@ Henderson/Chatfield argue that an improperly specified propensity score model ca
 
 ```{r}
 # Remove post-treatment covariates
+set.seed(10)
 
-# Randomly select features
+ypsps_pc <- ypsps %>% 
+  select(!(contains('1973')|contains('1982')))
 
 # Simulate random selection of features 10k+ times
+s <-10
 
-# Fit p-score models and save ATTs, proportion of balanced covariates, and mean percent balance improvement
+# create an empty list for storing the models
+models_list <- list()
 
+# create empty vectors for storage
+ATT_full <- c()
+smd_prop <- c()
+smd_mean <- c()
+
+# loop through random numbers of random covariates and create matchit model objects
+for(i in 1:s){
+  samp_df <- ypsps_pc %>% select(-c(college,student_ppnscal)) # drop treatment and outcome for the covariate sampling
+  # grab a random number of random column indices
+  covs <- sample(1:ncol(samp_df),sample(1:ncol(samp_df),1))
+  # subset the dataframe using the vector of column indices
+  m_df <- ypsps_pc %>% select(c(covs,"college","student_ppnscal")) # always keep the treatment indicator and the outcome
+  mdf_nomiss <- m_df %>% drop_na() # MatchIt does not allow missing values
+  
+  # construct character string for formula, subtracting treatment and outcome
+  cov_names <- names(select(mdf_nomiss,-c(college,student_ppnscal)))
+  form_char <- paste0("college ~ ",paste0(cov_names,collapse=' + '), sep = " ")
+  
+  # run the matching algothrim on all the variables in the df
+  result <- matchit(formula = as.formula(form_char), data = mdf_nomiss, method = "full", distance = "glm") # store it
+  models_list[[i]] <- result
+  match_full_att_summ <- summary(result) # get summary object
+  # store prop std mean diff meeting the >= .1 threshold
+  smd_prop[i] <- sum(match_full_att_summ$sum.all[,3] <= .1)/length(match_full_att_summ$sum.all[,3])
+  # store mean pct improvement in std mean diff
+  smd_mean[i] <- mean(match_full_att_summ$reduction[,1])
+  match_full_att_data <- match.data(result) # recover matched dataset
+  form_char2 <- paste0("student_ppnscal ~ ",paste0(cov_names,collapse=' + '), sep = " + college") # construct character string for second formula
+  # estimate the ATT
+  lm_full_att <- lm(as.formula(form_char2), data = match_full_att_data, weights = weights)
+  ATT_full[i] <- lm_full_att$coefficients["college"] # store estimate for college
+}
+```
+
+```{r}
+plots <- data.frame(ATT_full, smd_mean, smd_prop)
+```
+
+```{r}
 # Plot ATT v. proportion
-
+p <- ggplot(plots, aes(x = smd_prop, y = ATT_full)) +
+  geom_point(color = "blue") +
+  xlab('% covariates meeting .1 threshold') +
+  ylab('ATT') +
+  ggtitle('ATT versus Proportion') 
+p
 # 10 random covariate balance plots (hint try gridExtra)
+
 # Note: ggplot objects are finnicky so ask for help if you're struggling to automatically create them; consider using functions!
+```
+```{r}
+library(cobalt)
+library(gridExtra)
+model_inds <- sample(length(models_list),10) # sample 10 models and get their indices
+p <- lapply(model_inds, function(i) love.plot(models_list[[i]], binary = "std"))
+do.call("grid.arrange", p)
+
+```
+
+```{r}
+install.packages('cobalt')
+```
+
+```{r}
+library(cobalt)
+library(gridExtra)
+model_inds <- sample(length(models_list),10) # sample 10 models and get their indices
+p <- lapply(model_inds, function(i) love.plot(models_list[[i]], binary = "std"))
+do.call("grid.arrange", p)
 ```
 
 ## Questions
