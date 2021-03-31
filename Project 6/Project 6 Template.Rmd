@@ -147,7 +147,7 @@ Select covariates that you think best represent the "true" model predicting whet
 # Select covariates that represent the "true" model for selection, fit model
 match_full_ate <- matchit(formula = college ~ parent_Money + parent_EducHH + parent_Race + student_GPA + student_community + student_FamTalk, method = 'full', data = ypsps, estimand = 'ATE')
                          
-summary(ate.sum)
+summary(match_full_ate)
 ```
 
 ```{r}
@@ -167,36 +167,10 @@ sum_matched<-as.data.frame(sum_matched)
 
 Treat_score <-sum_matched[1] #means treated
 Control_score <-sum_matched[2] #means control
-smd_balance <- sum_matched %>%
-               filter_at(vars(3), any_vars(. <=.1))smd
-
-# <-sum_matched[apply(sum_matched[3], 1, function(x) any(x <= .1 )), ]
-
-# ATE Estimate is the coefficient estimate on the treatment variable "college"
-ATE_full <- lm_exact_ate_summ$coefficients["college", "Estimate"]
-ATE_full
+smd_balance <- sum_matched [3] %>% filter_all(all_vars(.<=.1)) # variables with standard mean difference <=.1
 
 ```
 
-
-
-```{r}
-colnames(ypsps)
-```
-
-```{r}
-# Report the overall balance and the proportion of covariates that meet the balance threshold
-match_full_ate_data <- match.data(match_full_ate)
-lm_full_ate <- lm(student_ppnscal ~ college + parent_Money + parent_EducHH + parent_Race + student_GPA + student_community + student_FamTalk , data = match_full_ate_data, weights = weights)
-lm_full_ate_summ <- summary(lm_full_ate)
-lm_full_ate_summ
-
-# ATE Estimate is the coefficient estimate on the treatment variable "college"
-ATE_full <- lm_exact_ate_summ$coefficients["college", "Estimate"]
-ATE_full
-```
-
-## Simulations
 
 Henderson/Chatfield argue that an improperly specified propensity score model can actually \textit{increase} the bias of the estimate. To demonstrate this, they simulate 800,000 different propensity score models by choosing different permutations of covariates. To investigate their claim, do the following:
 
