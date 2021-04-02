@@ -185,25 +185,26 @@ Henderson/Chatfield argue that an improperly specified propensity score model ca
 
 ```{r}
 # Remove post-treatment covariates
-set.seed(10)
+#set.seed(10)
 
-ypsps_pc <- ypsps %>% 
-  select(!(contains('1973')|contains('1982')))
+ypsps_precovs <- ypsps_df %>% 
+  select(!(contains('1973')|contains('1982')|interviewid|A)) %>% 
+  mutate(college = as.factor(college)) # convert treatment to factor
 
 # Simulate random selection of features 10k+ times
-s <-10
+s <-100
 
 # create an empty list for storing the models
-models_list <- list()
+models_list_psm <- list()
 
 # create empty vectors for storage
-ATT_full <- c()
-smd_prop <- c()
-smd_mean <- c()
+ATT_full_psm <- c()
+smd_prop_psm <- c()
+smd_mean_psm <- c()
 
 # loop through random numbers of random covariates and create matchit model objects
 for(i in 1:s){
-  samp_df <- ypsps_pc %>% select(-c(college,student_ppnscal)) # drop treatment and outcome for the covariate sampling
+  samp_df <- ypsps_pc %>% select(-c(college,student_ppnscal)) # drop treatment and outcome for the covariate sampling, drop interviewid forever
   # grab a random number of random column indices
   covs <- sample(1:ncol(samp_df),sample(1:ncol(samp_df),1))
   # subset the dataframe using the vector of column indices
@@ -216,27 +217,28 @@ for(i in 1:s){
   
   # run the matching algothrim on all the variables in the df
   result <- matchit(formula = as.formula(form_char), data = mdf_nomiss, method = "full", distance = "glm") # store it
-  models_list[[i]] <- result
+  models_list_psm[[i]] <- result
   match_full_att_summ <- summary(result) # get summary object
   # store prop std mean diff meeting the >= .1 threshold
-  smd_prop[i] <- sum(match_full_att_summ$sum.all[,3] <= .1)/length(match_full_att_summ$sum.all[,3])
+  smd_prop_psm[i] <- sum(match_full_att_summ$sum.all[,3] <= .1)/length(match_full_att_summ$sum.all[,3])
   # store mean pct improvement in std mean diff
-  smd_mean[i] <- mean(match_full_att_summ$reduction[,1])
+  smd_mean_psm[i] <- mean(match_full_att_summ$reduction[,1])
   match_full_att_data <- match.data(result) # recover matched dataset
   form_char2 <- paste0("student_ppnscal ~ ",paste0(cov_names,collapse=' + '), sep = " + college") # construct character string for second formula
   # estimate the ATT
   lm_full_att <- lm(as.formula(form_char2), data = match_full_att_data, weights = weights)
-  ATT_full[i] <- lm_full_att$coefficients["college"] # store estimate for college
+  ATT_full_psm[i] <- lm_full_att$coefficients["college"] # store estimate for college
+  print(i) # progress
 }
 ```
 
 ```{r}
-plots <- data.frame(ATT_full, smd_mean, smd_prop)
+plots <- data.frame(ATT_full_psm, smd_mean_psm, smd_prop_psm)
 ```
 
 ```{r}
 # Plot ATT v. proportion
-p <- ggplot(plots, aes(x = smd_prop, y = ATT_full)) +
+p <- ggplot(plots, aes(x = smd_prop_psm, y = ATT_full_psm)) +
   geom_point(color = "blue") +
   xlab('% covariates meeting .1 threshold') +
   ylab('ATT') +
@@ -286,83 +288,111 @@ Henderson/Chatfield propose using genetic matching to learn the best weights for
 
 
 ```{r}
-set.seed(10)
+#set.seed(10)
 
-# Remove post-treatment covariates
+# Remove post-treatment covariates and extraneous variables (interview id, A from the randomization section)
 ypsps_precovs <- ypsps_df %>% 
-  select(!(contains('1973')|contains('1982')))
+  select(!(contains('1973')|contains('1982')|interviewid|A))
 
-sims_n <- 10 # set the number of simulations
+sims_n <- 100 # set the number of simulations
 
 # create an empty list for storing the models
-models_list <- list()
+models_list_fom <- list()
 
 # create empty vectors for storage
-ATT_full <- c()
-smd_prop <- c()
-smd_mean <- c()
+ATT_full_fom <- c()
+smd_prop_fom <- c()
+smd_mean_fom <- c()
 
-# loop through random numbers of random covariates and create matchit model objects
+# loop through random numbers of random covariates, create matchit model objects, and extract/store parameters
 
 for(i in 1:sims_n){
-  samp_df <- ypsps_precovs %>% select(-c(college,student_ppnscal)) # drop treatment and outcome for the covariate sampling
+  samp_df <- ypsps_precovs %>% select(-c(college,student_ppnscal)) # drop treatment and outcome for the covariate sampling, drop interview id forever
   # grab a random number of random column indices
   covs <- sample(1:ncol(samp_df),sample(1:ncol(samp_df),1))
   # subset the dataframe using the vector of column indices
   m_df <- ypsps_precovs %>% select(c(covs,"college","student_ppnscal")) # always keep the treatment indicator and the outcome
   mdf_nomiss <- m_df %>% drop_na() # MatchIt does not allow missing values
-  # construct character string for formula, subtracting treatment and outcome
-  cov_names <- names(select(mdf_nomiss,-c(college,student_ppnscal)))
-  form_char <- paste0("college ~ ",paste0(cov_names,collapse=' + '), sep = " ")
+  # construct character string for formula in matchit object, subtracting treatment and outcome
+  cov_names <- names(select(mdf_nomiss,-c(college,student_ppnscal))) # get names
+  form_char <- paste0("college ~ ",paste0(cov_names,collapse=' + '), sep = " ") # paste with lefthand side of equation
   # run the matching algothrim on all the variables in the df
-  result <- matchit(formula = as.formula(form_char), data = mdf_nomiss, method = "full", distance = "mahalanobis") # store it
-  models_list[[i]] <- result
+  result <- matchit(formula = as.formula(form_char), data = mdf_nomiss, method = "full", distance = "mahalanobis")
+  models_list_fom[[i]] <- result # store it
   match_full_att_summ <- summary(result) # get summary object
-  # store prop std mean diff meeting the >= .1 threshold
-  smd_prop[i] <- sum(match_full_att_summ$sum.all[,3] <= .1)/length(match_full_att_summ$sum.all[,3])
+  # store prop std mean diff meeting the <= .1 threshold
+  smd_prop_fom[i] <- sum(match_full_att_summ$sum.all[,3] <= .1)/length(match_full_att_summ$sum.all[,3])
   # store mean pct improvement in std mean diff
-  smd_mean[i] <- mean(match_full_att_summ$reduction[,1])
+  smd_mean_fom[i] <- mean(match_full_att_summ$reduction[,1])
   match_full_att_data <- match.data(result) # recover matched dataset
-  form_char2 <- paste0("student_ppnscal ~ ",paste0(cov_names,collapse=' + '), sep = " + college") # construct character string for second formula
+  # construct character string for linear model formula
+  form_char2 <- paste0("student_ppnscal ~ ",paste0(cov_names,collapse=' + '), sep = " + college")
   # estimate the ATT
   lm_full_att <- lm(as.formula(form_char2), data = match_full_att_data, weights = weights)
-  ATT_full[i] <- lm_full_att$coefficients["college"] # store estimate for college
+  ATT_full_fom[i] <- lm_full_att$coefficients["college"] # store estimate for college
+  print(i) # to show progress
 }
 
-# create df of stored values
-
-plots_df <- data.frame(ATT_full,smd_mean,smd_prop)
+# create df of stored values for plotting
+plots_df <- data.frame(ATT_full_fom,smd_mean_fom,smd_prop_fom)
 
 # Plot ATT v. proportion
-
-p <- ggplot(plots_df, aes(x = smd_prop, y = ATT_full)) +
+p0 <- ggplot(plots_df, aes(x = smd_prop_fom, y = ATT_full_fom)) +
   geom_point() +
   xlab('% covariates meeting .1 threshold') +
   ylab('ATT') +
   ggtitle('ATT versus proportion')
-p
+p0
 
 # 10 random covariate balance plots (hint try gridExtra)
-library(cobalt)
+library(cobalt) # for the love plot
 library(gridExtra)
 
-model_inds <- sample(length(models_list),10) # sample 10 models and get their indices
+model_inds <- sample(length(models_list_fom),10) # sample 10 models and get their indices
 
-p <- lapply(model_inds, function(i) love.plot(models_list[[i]], binary = "std"))
-do.call("grid.arrange", p)
+# plot covariate balance
+p <- lapply(model_inds, function(i) love.plot(models_list_fom[[i]], binary = "std"))
+
+# arrange them in two columns on a single page
+grid.arrange(p[[1]],p[[2]],p[[3]],p[[4]],p[[5]],
+             p[[6]],p[[7]],p[[8]],p[[9]],p[[10]],
+             ncol = 2, top = "10 random covariate balance plots")
+
 ```
+
+\begin{enumerate}
+    \item \textbf{These ten random covariate balance plots show that the blue points, representing the standardized mean differences for adjusted covariates, are far more clustered around the value of zero than the pink points (which represent the unadjusted covariates).}
 
 ```{r}
 # Visualization for distributions of percent improvement
+
+# create dfs for psm and fom, labeled by algorithm
+v1 <- data.frame(smd_mean_psm) %>% 
+  mutate(algorithm = 'propensity score') %>% 
+  rename(smd_mean = smd_mean_psm)
+
+v2 <- data.frame(smd_mean_fom) %>% 
+  mutate(algorithm = 'full optimal mahalanobis') %>% 
+  rename(smd_mean = smd_mean_fom)
+
+smd_mean_df <- rbind(v1,v2) # combine them into one df for plotting
+
+# plot number of models by mean % balance improvement
+p_final <- ggplot(smd_mean_df, aes(smd_mean, colour = algorithm)) +
+  geom_freqpoly(binwidth = 10) + # similar to histogram, but with a trendline
+  xlab('% balance improvement (avg std mean difference)') +
+  ylab('# models')
+
+p_final
 ```
 
 ## Questions
 
 \begin{enumerate}
     \item \textbf{Does your alternative matching method have more runs with higher proportions of balanced covariates?}
-    \item \textbf{Your Answer:}
+    \item \textbf{Yes. The full optimal Mahalanobis matching yields more runs with higher proportions of balanced covariates. The ATT vs proportion plot for FOM shows many more points corresponding to higher values on the X-axis than the ATT vs proportion plot for PSM.}
     \item \textbf{Use a visualization to examine the change in the distribution of the percent improvement in balance in propensity score matching vs. the distribution of the percent improvement in balance in your new method. Which did better? Analyze the results in 1-2 sentences.}
-    \item \textbf{Your Answer:}
+    \item \textbf{The full optimal Mahalanobis matching yields many more models with a lower average standard mean difference than the propensity score matching. As can be seen in the final figure, the distribution of average standard mean difference is rightward skewed for propensity score matching. By contrast, our alternative matching algorithm yields a distribution that is centered much closer to zero.}
 \end{enumerate}
 
 \textbf{Optional:} Looking ahead to the discussion questions, you may choose to model the propensity score using an algorithm other than logistic regression and perform these simulations again, if you wish to explore the second discussion question further.
