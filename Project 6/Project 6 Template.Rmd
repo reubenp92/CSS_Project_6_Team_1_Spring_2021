@@ -156,7 +156,7 @@ plot(match_full_ate, type = "qq", interactive = FALSE,
      which.xs = c("parent_Money", "parent_EducHH", "parent_Race", "student_GPA", "student_community", "student_FamTalk"))
 
 ate.sum <- summary(match_full_ate)
-plot(ate.sum, var.order="unmatched", threshold = c(.1,.05))
+plot(ate.sum, var.order="unmatched", cex= 1)
 ```
 
 
@@ -185,9 +185,9 @@ Henderson/Chatfield argue that an improperly specified propensity score model ca
 
 ```{r}
 # Remove post-treatment covariates
-#set.seed(10)
+set.seed(10)
 
-ypsps_precovs <- ypsps_df %>% 
+ypsps_pc <- ypsps_df %>% 
   select(!(contains('1973')|contains('1982')|interviewid|A)) %>% 
   mutate(college = as.factor(college)) # convert treatment to factor
 
@@ -227,7 +227,7 @@ for(i in 1:s){
   form_char2 <- paste0("student_ppnscal ~ ",paste0(cov_names,collapse=' + '), sep = " + college") # construct character string for second formula
   # estimate the ATT
   lm_full_att <- lm(as.formula(form_char2), data = match_full_att_data, weights = weights)
-  ATT_full_psm[i] <- lm_full_att$coefficients["college"] # store estimate for college
+  ATT_full_psm[i] <- lm_full_att$coefficients["college1"] # store estimate for college
   print(i) # progress
 }
 ```
@@ -244,40 +244,27 @@ p <- ggplot(plots, aes(x = smd_prop_psm, y = ATT_full_psm)) +
   ylab('ATT') +
   ggtitle('ATT versus Proportion') 
 p
-# 10 random covariate balance plots (hint try gridExtra)
-
-# Note: ggplot objects are finnicky so ask for help if you're struggling to automatically create them; consider using functions!
-```
-```{r}
-library(cobalt)
-library(gridExtra)
-model_inds <- sample(length(models_list),10) # sample 10 models and get their indices
-p <- lapply(model_inds, function(i) love.plot(models_list[[i]], binary = "std"))
-do.call("grid.arrange", p)
-
 ```
 
 ```{r}
-install.packages('cobalt')
-```
-
-```{r}
-library(cobalt)
-library(gridExtra)
-model_inds <- sample(length(models_list),10) # sample 10 models and get their indices
-p <- lapply(model_inds, function(i) love.plot(models_list[[i]], binary = "std"))
-do.call("grid.arrange", p)
+# 10 random covariate balance plots
+set.seed(10)
+r_models <- sample(n, size=10)
+for (i in r_models) {
+  model_inds <- summary(models_list_psm[[i]])
+  plot(model_inds, var.order = "unmatched", cex=0.5)
+}
 ```
 
 ## Questions
 
 \begin{enumerate}
     \item \textbf{How many simulations resulted in models with a higher proportion of balanced covariates? Do you have any concerns about this?}
-    \item \textbf{Your Answer}:
+    \item \textbf{Your Answer: About 40 percent of the simulations resulted in models with a higher proportion of covariates. Indeed, it would be ideal if a larger proportion of simulations met the balance threshold. Compared to the simulations in 4.2, the model created in 4.1 yielded a high proportion of covariates that met the .1 threshold (about 80 percent). But this model (i.e., 4.1) contained only 6 covariates and those covairates weren't randomly selected. It's possible that in models with fewer covariates and where covariates are randomly selected, the proportion of covariates that meet the balance threshold is going to be the lower.}
     \item \textbf{Analyze the distribution of the ATTs. Do you have any concerns about this distribution?}
-    \item \textbf{Your Answer:}
-    \item \textbf{Do your 10 randomly chosen covariate balance plots produce similar numbers on the same covariates? Is it a concern if they do not?}
-    \item \textbf{Your Answer:}
+    \item \textbf{Your Answer: As you can see from the ATT vs Proportion plot above, the more balanced the covariates are, the closer the ATT is clustered around 0. It appears that models with fewer balanced covariates have a slighty higher ATT score as well. I don't have any concerns about this distribution since there appears to be a rather clear pattern between ATT scores and the percent of covariates that meet the treshold (i.e., models with balanced covariates are clustered around an ATT of 0).}
+    \item \textbf{Do your 10 randomly chosen covariate balance plots produce similar numbers on the same covariates? Is it a concern if they do not? }
+    \item \textbf{Your Answer:As seen in the covariance balance plots, as the number of covariates in a model increases, the absolute standard mean difference (smd) for the covariates increases as well. As such, models with a larger number of covariates are less likely to meet the .1 covariate balance threshold. Across the 10 models, covariates do not produce similar smd scores. Because each model contains a different combination of matched covariates, it's likely that covariates' smd scores will be different across the 10 models as well.}
 \end{enumerate}
 
 # Matching Algorithm of Your Choice
@@ -332,7 +319,10 @@ for(i in 1:sims_n){
   ATT_full_fom[i] <- lm_full_att$coefficients["college"] # store estimate for college
   print(i) # to show progress
 }
+```
 
+
+```{r}
 # create df of stored values for plotting
 plots_df <- data.frame(ATT_full_fom,smd_mean_fom,smd_prop_fom)
 
